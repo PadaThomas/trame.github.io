@@ -1,0 +1,132 @@
+/* TRAME — design tokens
+   Import this file globally. Theme is controlled with data-theme="dark|light".
+*/
+:root {
+  color-scheme: dark;
+  --trame-bg: #10131A;
+  --trame-surface: #1B202B;
+  --trame-surface-raised: #242B38;
+  --trame-border: #343D4B;
+  --trame-text: #F4F5F7;
+  --trame-muted: #AAB3C2;
+  --trame-orange: #FFAA24;
+  --trame-blue: #21A8EF;
+  --trame-teal: #36C9AD;
+  --trame-danger: #E45B65;
+  --trame-warning: #F2B84B;
+  --trame-success: #36C9AD;
+  --trame-radius-sm: 6px;
+  --trame-radius-md: 10px;
+  --trame-radius-lg: 16px;
+  --trame-radius-xl: 22px;
+  --trame-shadow: 0 12px 32px rgba(0,0,0,.22);
+  --trame-font-ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --trame-font-display: "Space Grotesk", Inter, ui-sans-serif, sans-serif;
+  --trame-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+  color-scheme: light;
+  --trame-bg: #F5F7FA;
+  --trame-surface: #FFFFFF;
+  --trame-surface-raised: #EDF1F6;
+  --trame-border: #D9E0E9;
+  --trame-text: #17202B;
+  --trame-muted: #667085;
+  --trame-orange: #C87900;
+  --trame-blue: #087DBB;
+  --trame-teal: #138B76;
+  --trame-danger: #C83F4B;
+  --trame-warning: #9A6500;
+  --trame-success: #138B76;
+  --trame-shadow: 0 10px 28px rgba(22,34,51,.09);
+}
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --trame-bg: #F5F7FA;
+  --trame-surface: #FFFFFF;
+  --trame-surface-raised: #EDF1F6;
+  --trame-border: #D9E0E9;
+  --trame-text: #17202B;
+  --trame-muted: #667085;
+  --trame-orange: #C87900;
+  --trame-blue: #087DBB;
+  --trame-teal: #138B76;
+  --trame-danger: #C83F4B;
+  --trame-warning: #9A6500;
+  --trame-success: #138B76;
+  --trame-shadow: 0 10px 28px rgba(22,34,51,.09);
+}
+
+html, body {
+  background: var(--trame-bg);
+  color: var(--trame-text);
+  font-family: var(--trame-font-ui);
+}
+
+.trame-display { font-family: var(--trame-font-display); letter-spacing: -.035em; }
+.trame-mono { font-family: var(--trame-font-mono); font-variant-numeric: tabular-nums; }
+
+.trame-panel {
+  background: var(--trame-surface);
+  border: 1px solid var(--trame-border);
+  border-radius: var(--trame-radius-lg);
+  box-shadow: var(--trame-shadow);
+}
+
+.trame-button-primary {
+  background: var(--trame-orange);
+  color: #17202B;
+  border: 0;
+  border-radius: var(--trame-radius-md);
+  padding: .65rem 1rem;
+  font: 600 .925rem var(--trame-font-ui);
+  cursor: pointer;
+}
+.trame-button-primary:hover { filter: brightness(1.06); }
+.trame-button-primary:focus-visible,
+.trame-button-secondary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--trame-blue) 65%, transparent);
+  outline-offset: 2px;
+}
+.trame-button-secondary {
+  background: var(--trame-surface-raised);
+  color: var(--trame-text);
+  border: 1px solid var(--trame-border);
+  border-radius: var(--trame-radius-md);
+  padding: .65rem 1rem;
+  font: 600 .925rem var(--trame-font-ui);
+  cursor: pointer;
+}
+
+/* Hybride : navigation persistante, zone de travail flexible, inspecteur contextuel. */
+.trame-app-shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr) 300px;
+  background: var(--trame-bg);
+}
+.trame-sidebar { background: var(--trame-surface); border-right: 1px solid var(--trame-border); }
+.trame-workspace { min-width: 0; overflow: auto; }
+.trame-inspector { background: var(--trame-surface); border-left: 1px solid var(--trame-border); }
+
+@media (max-width: 1100px) {
+  .trame-app-shell { grid-template-columns: 220px minmax(0, 1fr); }
+  .trame-inspector { display: none; }
+}
+@media (max-width: 720px) {
+  .trame-app-shell { display: block; }
+  .trame-sidebar { display: none; }
+  .trame-workspace { min-height: 100dvh; }
+}
+
+/* Discipline colors: use as small accents/labels, never as full panel backgrounds. */
+.trame-discipline-light { --discipline-color: #FFAA24; }
+.trame-discipline-audio { --discipline-color: #21A8EF; }
+.trame-discipline-video { --discipline-color: #A78BFA; }
+.trame-discipline-network { --discipline-color: #36C9AD; }
+.trame-discipline-power { --discipline-color: #E45B65; }
+.trame-discipline-machinery { --discipline-color: #94A3B8; }
+.trame-discipline-marker { border-left: 3px solid var(--discipline-color); }
