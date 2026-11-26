@@ -243,3 +243,6 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
 .dmx-row { gap: 6px; align-items: flex-end; }
 .dmx-row .field { flex: 1; min-width: 0; }
 .dmx-row input, .mono { font-family: var(--mono); width: 100%; }
+
+.menu-panel .menu-item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 8px; border-radius: 5px; }
+.menu-panel .menu-item:hover { background: var(--bg); }
