@@ -1,7 +1,7 @@
 /* TRAME — service worker : l'application fonctionne hors ligne après la première visite.
    Stratégie : on sert la version en cache tout de suite, et on la met à jour en arrière-plan
    (la nouvelle version s'affiche à l'ouverture suivante). */
-const CACHE = 'trame-20261126121414';
+const CACHE = 'trame-20261126122913';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon.svg'];
 
 self.addEventListener('install', (e) => {

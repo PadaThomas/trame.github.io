@@ -22,11 +22,16 @@
     <div class="brand" title="TRAME — Dessinez • Connectez • Pilotez"><svg class="brand-mark" viewBox="6 10 88 80" aria-hidden="true"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 22 H82" stroke="#21A8EF" stroke-width="7"/><path d="M50 22 V78" stroke="#36C9AD" stroke-width="7"/><path d="M18 22 V48" stroke="#21A8EF" stroke-width="7"/><path d="M82 22 V48" stroke="#FFAA24" stroke-width="7"/></g><rect x="10" y="14" width="16" height="16" rx="4" fill="var(--trame-bg)" stroke="#21A8EF" stroke-width="5"/><rect x="74" y="14" width="16" height="16" rx="4" fill="var(--trame-bg)" stroke="#FFAA24" stroke-width="5"/><rect x="42" y="70" width="16" height="16" rx="4" fill="var(--trame-bg)" stroke="#36C9AD" stroke-width="5"/></svg><span class="brand-text">TRAME</span></div>
     <input id="projectName" class="project-name" title="Nom du projet" placeholder="Nom du projet">
     <span id="fileState" class="file-state" title="Fichier en cours"></span>
+    <div class="undo-btns"><button id="btnUndo" title="Annuler (⌘Z / Ctrl+Z)" aria-label="Annuler" disabled>↶</button><button id="btnRedo" title="Rétablir (⇧⌘Z / Ctrl+Y)" aria-label="Rétablir" disabled>↷</button></div>
     <nav class="seg" id="tabs" aria-label="Vues">
       <button data-tab="canvas" class="active" title="Synoptique">Synoptique</button>
       <button data-tab="cables" title="Liste des câbles"><span class="long">Liste des câbles</span><span class="short">Câbles</span></button>
       <button data-tab="devices" title="Nomenclature"><span class="long">Nomenclature</span><span class="short">Matériel</span></button>
     </nav>
+    <div class="seg" id="layoutModes" title="Disposition des appareils">
+      <button data-layout="manual" class="active" title="Mon plan : les positions que vous avez posées"><span class="long">Mon plan</span><span class="short">Mien</span></button>
+      <button data-layout="auto" title="Rangé : disposition calculée selon le sens du signal (vos positions sont conservées)"><span class="long">Rangé</span><span class="short">Rangé</span></button>
+    </div>
     <div class="seg" id="viewModes" title="Niveau de détail">
       <button data-mode="detail" class="active" title="Vue détaillée"><span class="long">Détaillée</span><span class="short">Détail</span></button>
       <button data-mode="simple" title="Vue simplifiée"><span class="long">Simplifiée</span><span class="short">Simple</span></button>
@@ -40,8 +45,7 @@
         <label class="chk"><input type="checkbox" id="avoidDevices" checked> Contourner les appareils</label>
         <label class="chk" title="En vue simplifiée : ports rangés selon la direction de leurs câbles, tracés en lignes droites, câbles parallèles regroupés"><input type="checkbox" id="tidyView" checked> Vue simplifiée lisible</label>
         <div class="menu-sep"></div>
-        <button id="btnArrange" class="menu-item" title="Repositionne les appareils selon le sens du signal : sources à gauche, distribution au milieu, destinations à droite (un bloc par zone)">⇶ Ranger le plan automatiquement</button>
-        <button id="btnUndoArrange" class="menu-item" hidden>↶ Annuler le rangement</button>
+        <button id="btnArrange" class="menu-item" title="Passe en vue « Rangé » et recalcule la disposition selon le sens du signal (vos positions restent dans « Mon plan »)">⇶ Recalculer la vue rangée</button>
         <div class="menu-sep"></div>
         <label class="menu-row">Thème
           <select id="theme">

@@ -191,7 +191,49 @@
     return pairs.length === 1 ? pairs[0] : '';
   }
 
-  function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(project)); } catch (e) { /* stockage indisponible */ } markDirty(); }
+  // Historique (annuler / rétablir) : un état du projet est retenu après chaque modification (regroupées sur 0,35 s)
+  const hist = { undo: [], redo: [], last: null, timer: null, applying: false };
+  function checkpointNow() {
+    clearTimeout(hist.timer); hist.timer = null;
+    const cur = JSON.stringify(project);
+    if (hist.last === null) { hist.last = cur; return; }
+    if (cur === hist.last) return;
+    hist.undo.push(hist.last); if (hist.undo.length > 100) hist.undo.shift();
+    hist.redo = []; hist.last = cur; updateUndoButtons();
+  }
+  function resetHistory() { clearTimeout(hist.timer); hist.undo = []; hist.redo = []; hist.last = JSON.stringify(project); updateUndoButtons(); }
+  function applyHistoryState(json, what) {
+    hist.applying = true;
+    const keep = ui.selected;
+    project = normalize(JSON.parse(json));
+    ui.multi.clear(); ui.pending = null;
+    ui.selected = keep && ((keep.type === 'device' && devById(keep.id)) || (keep.type === 'cable' && project.cables.some((c) => c.id === keep.id))) ? keep : null;
+    save(); renderAll(); syncLayoutButtons();
+    hist.applying = false; updateUndoButtons();
+    flash(what);
+  }
+  function undo() {
+    if (hist.timer) checkpointNow();
+    if (!hist.undo.length) { flash('Rien à annuler'); return; }
+    hist.redo.push(hist.last); hist.last = hist.undo.pop();
+    applyHistoryState(hist.last, '↶ Annulé' + (hist.undo.length ? ' (encore ' + hist.undo.length + ' étape' + (hist.undo.length > 1 ? 's' : '') + ')' : ''));
+  }
+  function redo() {
+    if (hist.timer) checkpointNow();
+    if (!hist.redo.length) { flash('Rien à rétablir'); return; }
+    hist.undo.push(hist.last); hist.last = hist.redo.pop();
+    applyHistoryState(hist.last, '↷ Rétabli');
+  }
+  function updateUndoButtons() {
+    const u = document.getElementById('btnUndo'), r = document.getElementById('btnRedo');
+    if (u) u.disabled = !hist.undo.length && !hist.timer;
+    if (r) r.disabled = !hist.redo.length;
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(project)); } catch (e) { /* stockage indisponible */ }
+    markDirty();
+    if (!hist.applying) { clearTimeout(hist.timer); hist.timer = setTimeout(checkpointNow, 350); updateUndoButtons(); }
+  }
   function commit(opts) { save(); renderAll(opts); }
 
   // ---------------------------------------------------------------- création
@@ -1287,11 +1329,43 @@
   }
   // ---------------------------------------------------------------- Ranger le plan (selon le sens du signal)
   // Sources à gauche, distribution au milieu, destinations à droite ; un bloc par zone ; une baie se déplace avec son contenu.
-  let layoutUndo = null;
+  // Deux dispositions : « Mon plan » (positions posées à la main) et « Rangé » (calculé selon le sens du signal).
+  // En vue rangée, les positions de « Mon plan » sont mises de côté dans project.layout.manual et remises au retour.
+  const layoutView = () => (project.layout && project.layout.view) || 'manual';
+  function capturePositions() {
+    return {
+      devs: Object.fromEntries(project.devices.map((d) => [d.id, { x: d.x, y: d.y, w: d.w, h: d.h }])),
+      via: Object.fromEntries(project.cables.filter((c) => c.via).map((c) => [c.id, c.via])),
+      gvia: Object.fromEntries(Object.entries(project.groups || {}).filter(([, g]) => g.via).map(([k, g]) => [k, g.via]))
+    };
+  }
+  function applyPositions(snap) {
+    project.devices.forEach((d) => { const o = snap.devs[d.id]; if (o) { d.x = o.x; d.y = o.y; if (o.w != null) { d.w = o.w; d.h = o.h; } } });
+    project.cables.forEach((c) => { if (snap.via[c.id]) c.via = snap.via[c.id]; else delete c.via; });
+    Object.entries(project.groups || {}).forEach(([k, g]) => { if (snap.gvia[k]) g.via = snap.gvia[k]; else delete g.via; });
+  }
+  function setLayoutView(v, recompute) {
+    if (v === layoutView() && !(v === 'auto' && recompute)) return;
+    if (v === 'auto') {
+      if (layoutView() !== 'auto') project.layout = { view: 'auto', manual: capturePositions() };
+      autoArrange();
+      flash('Vue rangée (calculée selon le sens du signal). « Mon plan » retrouve vos positions.');
+    } else {
+      const manual = project.layout && project.layout.manual;
+      if (manual) applyPositions(manual);
+      project.layout = { view: 'manual' };
+      flash('Mon plan : vos positions.');
+    }
+    commit(); syncLayoutButtons(); setTimeout(zoomFit, 30);
+  }
+  function syncLayoutButtons() {
+    const v = layoutView();
+    $$('#layoutModes button').forEach((b) => b.classList.toggle('active', b.dataset.layout === v));
+    document.body.classList.toggle('layout-auto', v === 'auto');
+  }
   function autoArrange() {
     const devs = project.devices;
     if (!devs.length) return;
-    const before = { devices: devs.map((d) => ({ id: d.id, x: d.x, y: d.y, w: d.w, h: d.h })), via: project.cables.filter((c) => c.via).map((c) => ({ id: c.id, via: c.via })), groups: JSON.parse(JSON.stringify(project.groups || {})) };
     const unitOf = (id) => { const d = devById(id); if (!d) return null; const r = d.parent && devById(d.parent); return r && isRack(r) ? r.id : d.id; };
     const units = devs.filter((d) => !d.parent || !devById(d.parent) || !isRack(devById(d.parent))).map((d) => d.id);
     // tailles mesurées en vue détaillée (la plus grande) pour qu'aucun appareil ne se chevauche dans l'une ou l'autre vue
@@ -1401,18 +1475,6 @@
     // les tracés posés à la main n'ont plus de sens après le rangement
     project.cables.forEach((c) => { delete c.via; });
     Object.values(project.groups || {}).forEach((g) => { delete g.via; });
-    layoutUndo = before;
-    $('#btnUndoArrange').hidden = false;
-    commit(); setTimeout(zoomFit, 30);
-    flash('Plan rangé selon le sens du signal — Affichage › « Annuler le rangement » pour revenir en arrière.');
-  }
-  function undoArrange() {
-    if (!layoutUndo) return;
-    layoutUndo.devices.forEach((o) => { const d = devById(o.id); if (d) { d.x = o.x; d.y = o.y; if (o.w != null) { d.w = o.w; d.h = o.h; } } });
-    layoutUndo.via.forEach((o) => { const c = project.cables.find((x) => x.id === o.id); if (c) c.via = o.via; });
-    project.groups = layoutUndo.groups;
-    layoutUndo = null; $('#btnUndoArrange').hidden = true;
-    commit(); setTimeout(zoomFit, 30); flash('Rangement annulé.');
   }
 
   function zoomFit() {
@@ -2276,7 +2338,7 @@
   function loadProjectText(t, h, name) {
     try {
       const p = JSON.parse(t); if (!p.devices) throw new Error('Fichier non reconnu');
-      loading = true; project = normalize(p); ui.selected = null; commit(); loading = false;
+      loading = true; project = normalize(p); ui.selected = null; commit(); loading = false; resetHistory(); syncLayoutButtons();
       fileHandle = h || null; rememberHandle(fileHandle); setClean(name || '');
       setTimeout(zoomFit, 50);
     } catch (err) { loading = false; notify('Impossible d\'ouvrir : ' + err.message); }
@@ -2328,7 +2390,7 @@
     e.target.value = '';
   };
   $('#btnNew').onclick = () => confirmBox('Créer un projet vide ?' + (dirty ? ' Des modifications ne sont pas enregistrées dans le fichier.' : ''), () => {
-    loading = true; project = emptyProject(); ui.selected = null; commit(); loading = false;
+    loading = true; project = emptyProject(); ui.selected = null; commit(); loading = false; resetHistory(); syncLayoutButtons();
     fileHandle = null; rememberHandle(null); setClean('');
   }, 'Nouveau projet');
   // raccourcis : ⌘/Ctrl+S, ⌘/Ctrl+Maj+S, ⌘/Ctrl+O (actifs même dans un champ de saisie)
@@ -2337,6 +2399,13 @@
   document.addEventListener('keydown', (ev) => {
     if (!(ev.metaKey || ev.ctrlKey)) return;
     const k = ev.key.toLowerCase();
+    if (k === 'z' || k === 'y') {
+      const a = document.activeElement;
+      if (a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/checkbox|radio|color|range/.test(a.type)))) return;
+      ev.preventDefault();
+      if (k === 'y' || ev.shiftKey) redo(); else undo();
+      return;
+    }
     if (k === 's') { ev.preventDefault(); if (ev.shiftKey) saveAs(); else saveFile(); }
     else if (k === 'o') { ev.preventDefault(); openFile(); }
   });
@@ -2396,8 +2465,10 @@
     b.onclick = () => { ui.mode = b.dataset.mode; $$('#viewModes button').forEach((x) => x.classList.toggle('active', x === b)); renderCanvas(); };
   });
   $('#showRooms').onchange = (e) => { ui.showRooms = e.target.checked; renderCanvas(); };
-  $('#btnArrange').onclick = () => { $$('.menu.open').forEach((x) => x.classList.remove('open')); autoArrange(); };
-  $('#btnUndoArrange').onclick = () => { $$('.menu.open').forEach((x) => x.classList.remove('open')); undoArrange(); };
+  $('#btnArrange').onclick = () => { $$('.menu.open').forEach((x) => x.classList.remove('open')); setLayoutView('auto', true); };
+  $$('#layoutModes button').forEach((b) => { b.onclick = () => setLayoutView(b.dataset.layout); });
+  $('#btnUndo').onclick = undo;
+  $('#btnRedo').onclick = redo;
   $('#tidyView').onchange = (e) => { ui.tidy = e.target.checked; renderCanvas(); };
   $('#avoidDevices').onchange = (e) => { ui.avoid = e.target.checked; renderCanvas(); };
   $('#showBundles').onchange = (e) => { ui.bundle = e.target.checked; if (ui.selected && ui.selected.type === 'bundle') select(null); else renderCanvas(); };
@@ -2470,5 +2541,6 @@
   renderAll();
   try { dirty = localStorage.getItem('synoptique.dirty') === '1'; } catch (e) { dirty = false; }
   updateFileState();
+  resetHistory(); syncLayoutButtons();
   setTimeout(zoomFit, 30);
 })();

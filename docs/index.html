@@ -205,8 +205,10 @@ body { display: flex; flex-direction: column; }
 .file-state { font-size: 11px; color: var(--muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-state.dirty { color: var(--trame-warning); }
 .menu-sep { height: 1px; background: var(--line); margin: 5px 0; }
+@media (max-width: 1400px) { .brand-text { display: none; } }
 @media (max-width: 1150px) { .brand { display: none; } .project-name { flex-basis: 150px; } }
-@media (max-width: 960px) { .long { display: none; } .short { display: inline; } .file-state { max-width: 90px; } }
+@media (max-width: 1280px) { .long { display: none; } .short { display: inline; } .file-state { max-width: 90px; } }
+@media (max-width: 1060px) { .file-state { display: none; } .project-name { flex-basis: 120px; } }
 @media (max-width: 900px) { .hint { display: none; } }
 @media (max-width: 760px) { .file-state { display: none; } .project-name { flex-basis: 90px; } .topbar { gap: 5px; padding: 6px; } .topbar button { padding: 5px 7px; } }
 
@@ -397,6 +399,14 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
 
 .menu-panel .menu-item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 8px; border-radius: 5px; }
 .menu-panel .menu-item:hover { background: var(--bg); }
+
+/* annuler / rétablir */
+.undo-btns { display: flex; gap: 2px; }
+.undo-btns button { padding: 3px 8px; font-size: 15px; line-height: 1; }
+.undo-btns button:disabled { opacity: .35; cursor: default; }
+/* vue rangée : rappel discret sur le synoptique */
+body.layout-auto #view-canvas::before { content: 'Vue rangée — vos positions sont dans « Mon plan »'; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 4;
+  font-size: 11px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -404,11 +414,16 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     <div class="brand" title="TRAME — Dessinez • Connectez • Pilotez"><svg class="brand-mark" viewBox="6 10 88 80" aria-hidden="true"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 22 H82" stroke="#21A8EF" stroke-width="7"/><path d="M50 22 V78" stroke="#36C9AD" stroke-width="7"/><path d="M18 22 V48" stroke="#21A8EF" stroke-width="7"/><path d="M82 22 V48" stroke="#FFAA24" stroke-width="7"/></g><rect x="10" y="14" width="16" height="16" rx="4" fill="var(--trame-bg)" stroke="#21A8EF" stroke-width="5"/><rect x="74" y="14" width="16" height="16" rx="4" fill="var(--trame-bg)" stroke="#FFAA24" stroke-width="5"/><rect x="42" y="70" width="16" height="16" rx="4" fill="var(--trame-bg)" stroke="#36C9AD" stroke-width="5"/></svg><span class="brand-text">TRAME</span></div>
     <input id="projectName" class="project-name" title="Nom du projet" placeholder="Nom du projet">
     <span id="fileState" class="file-state" title="Fichier en cours"></span>
+    <div class="undo-btns"><button id="btnUndo" title="Annuler (⌘Z / Ctrl+Z)" aria-label="Annuler" disabled>↶</button><button id="btnRedo" title="Rétablir (⇧⌘Z / Ctrl+Y)" aria-label="Rétablir" disabled>↷</button></div>
     <nav class="seg" id="tabs" aria-label="Vues">
       <button data-tab="canvas" class="active" title="Synoptique">Synoptique</button>
       <button data-tab="cables" title="Liste des câbles"><span class="long">Liste des câbles</span><span class="short">Câbles</span></button>
       <button data-tab="devices" title="Nomenclature"><span class="long">Nomenclature</span><span class="short">Matériel</span></button>
     </nav>
+    <div class="seg" id="layoutModes" title="Disposition des appareils">
+      <button data-layout="manual" class="active" title="Mon plan : les positions que vous avez posées"><span class="long">Mon plan</span><span class="short">Mien</span></button>
+      <button data-layout="auto" title="Rangé : disposition calculée selon le sens du signal (vos positions sont conservées)"><span class="long">Rangé</span><span class="short">Rangé</span></button>
+    </div>
     <div class="seg" id="viewModes" title="Niveau de détail">
       <button data-mode="detail" class="active" title="Vue détaillée"><span class="long">Détaillée</span><span class="short">Détail</span></button>
       <button data-mode="simple" title="Vue simplifiée"><span class="long">Simplifiée</span><span class="short">Simple</span></button>
@@ -422,8 +437,7 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
         <label class="chk"><input type="checkbox" id="avoidDevices" checked> Contourner les appareils</label>
         <label class="chk" title="En vue simplifiée : ports rangés selon la direction de leurs câbles, tracés en lignes droites, câbles parallèles regroupés"><input type="checkbox" id="tidyView" checked> Vue simplifiée lisible</label>
         <div class="menu-sep"></div>
-        <button id="btnArrange" class="menu-item" title="Repositionne les appareils selon le sens du signal : sources à gauche, distribution au milieu, destinations à droite (un bloc par zone)">⇶ Ranger le plan automatiquement</button>
-        <button id="btnUndoArrange" class="menu-item" hidden>↶ Annuler le rangement</button>
+        <button id="btnArrange" class="menu-item" title="Passe en vue « Rangé » et recalcule la disposition selon le sens du signal (vos positions restent dans « Mon plan »)">⇶ Recalculer la vue rangée</button>
         <div class="menu-sep"></div>
         <label class="menu-row">Thème
           <select id="theme">
@@ -1468,7 +1482,49 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     return pairs.length === 1 ? pairs[0] : '';
   }
 
-  function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(project)); } catch (e) { /* stockage indisponible */ } markDirty(); }
+  // Historique (annuler / rétablir) : un état du projet est retenu après chaque modification (regroupées sur 0,35 s)
+  const hist = { undo: [], redo: [], last: null, timer: null, applying: false };
+  function checkpointNow() {
+    clearTimeout(hist.timer); hist.timer = null;
+    const cur = JSON.stringify(project);
+    if (hist.last === null) { hist.last = cur; return; }
+    if (cur === hist.last) return;
+    hist.undo.push(hist.last); if (hist.undo.length > 100) hist.undo.shift();
+    hist.redo = []; hist.last = cur; updateUndoButtons();
+  }
+  function resetHistory() { clearTimeout(hist.timer); hist.undo = []; hist.redo = []; hist.last = JSON.stringify(project); updateUndoButtons(); }
+  function applyHistoryState(json, what) {
+    hist.applying = true;
+    const keep = ui.selected;
+    project = normalize(JSON.parse(json));
+    ui.multi.clear(); ui.pending = null;
+    ui.selected = keep && ((keep.type === 'device' && devById(keep.id)) || (keep.type === 'cable' && project.cables.some((c) => c.id === keep.id))) ? keep : null;
+    save(); renderAll(); syncLayoutButtons();
+    hist.applying = false; updateUndoButtons();
+    flash(what);
+  }
+  function undo() {
+    if (hist.timer) checkpointNow();
+    if (!hist.undo.length) { flash('Rien à annuler'); return; }
+    hist.redo.push(hist.last); hist.last = hist.undo.pop();
+    applyHistoryState(hist.last, '↶ Annulé' + (hist.undo.length ? ' (encore ' + hist.undo.length + ' étape' + (hist.undo.length > 1 ? 's' : '') + ')' : ''));
+  }
+  function redo() {
+    if (hist.timer) checkpointNow();
+    if (!hist.redo.length) { flash('Rien à rétablir'); return; }
+    hist.undo.push(hist.last); hist.last = hist.redo.pop();
+    applyHistoryState(hist.last, '↷ Rétabli');
+  }
+  function updateUndoButtons() {
+    const u = document.getElementById('btnUndo'), r = document.getElementById('btnRedo');
+    if (u) u.disabled = !hist.undo.length && !hist.timer;
+    if (r) r.disabled = !hist.redo.length;
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(project)); } catch (e) { /* stockage indisponible */ }
+    markDirty();
+    if (!hist.applying) { clearTimeout(hist.timer); hist.timer = setTimeout(checkpointNow, 350); updateUndoButtons(); }
+  }
   function commit(opts) { save(); renderAll(opts); }
 
   // ---------------------------------------------------------------- création
@@ -2564,11 +2620,43 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
   }
   // ---------------------------------------------------------------- Ranger le plan (selon le sens du signal)
   // Sources à gauche, distribution au milieu, destinations à droite ; un bloc par zone ; une baie se déplace avec son contenu.
-  let layoutUndo = null;
+  // Deux dispositions : « Mon plan » (positions posées à la main) et « Rangé » (calculé selon le sens du signal).
+  // En vue rangée, les positions de « Mon plan » sont mises de côté dans project.layout.manual et remises au retour.
+  const layoutView = () => (project.layout && project.layout.view) || 'manual';
+  function capturePositions() {
+    return {
+      devs: Object.fromEntries(project.devices.map((d) => [d.id, { x: d.x, y: d.y, w: d.w, h: d.h }])),
+      via: Object.fromEntries(project.cables.filter((c) => c.via).map((c) => [c.id, c.via])),
+      gvia: Object.fromEntries(Object.entries(project.groups || {}).filter(([, g]) => g.via).map(([k, g]) => [k, g.via]))
+    };
+  }
+  function applyPositions(snap) {
+    project.devices.forEach((d) => { const o = snap.devs[d.id]; if (o) { d.x = o.x; d.y = o.y; if (o.w != null) { d.w = o.w; d.h = o.h; } } });
+    project.cables.forEach((c) => { if (snap.via[c.id]) c.via = snap.via[c.id]; else delete c.via; });
+    Object.entries(project.groups || {}).forEach(([k, g]) => { if (snap.gvia[k]) g.via = snap.gvia[k]; else delete g.via; });
+  }
+  function setLayoutView(v, recompute) {
+    if (v === layoutView() && !(v === 'auto' && recompute)) return;
+    if (v === 'auto') {
+      if (layoutView() !== 'auto') project.layout = { view: 'auto', manual: capturePositions() };
+      autoArrange();
+      flash('Vue rangée (calculée selon le sens du signal). « Mon plan » retrouve vos positions.');
+    } else {
+      const manual = project.layout && project.layout.manual;
+      if (manual) applyPositions(manual);
+      project.layout = { view: 'manual' };
+      flash('Mon plan : vos positions.');
+    }
+    commit(); syncLayoutButtons(); setTimeout(zoomFit, 30);
+  }
+  function syncLayoutButtons() {
+    const v = layoutView();
+    $$('#layoutModes button').forEach((b) => b.classList.toggle('active', b.dataset.layout === v));
+    document.body.classList.toggle('layout-auto', v === 'auto');
+  }
   function autoArrange() {
     const devs = project.devices;
     if (!devs.length) return;
-    const before = { devices: devs.map((d) => ({ id: d.id, x: d.x, y: d.y, w: d.w, h: d.h })), via: project.cables.filter((c) => c.via).map((c) => ({ id: c.id, via: c.via })), groups: JSON.parse(JSON.stringify(project.groups || {})) };
     const unitOf = (id) => { const d = devById(id); if (!d) return null; const r = d.parent && devById(d.parent); return r && isRack(r) ? r.id : d.id; };
     const units = devs.filter((d) => !d.parent || !devById(d.parent) || !isRack(devById(d.parent))).map((d) => d.id);
     // tailles mesurées en vue détaillée (la plus grande) pour qu'aucun appareil ne se chevauche dans l'une ou l'autre vue
@@ -2678,18 +2766,6 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     // les tracés posés à la main n'ont plus de sens après le rangement
     project.cables.forEach((c) => { delete c.via; });
     Object.values(project.groups || {}).forEach((g) => { delete g.via; });
-    layoutUndo = before;
-    $('#btnUndoArrange').hidden = false;
-    commit(); setTimeout(zoomFit, 30);
-    flash('Plan rangé selon le sens du signal — Affichage › « Annuler le rangement » pour revenir en arrière.');
-  }
-  function undoArrange() {
-    if (!layoutUndo) return;
-    layoutUndo.devices.forEach((o) => { const d = devById(o.id); if (d) { d.x = o.x; d.y = o.y; if (o.w != null) { d.w = o.w; d.h = o.h; } } });
-    layoutUndo.via.forEach((o) => { const c = project.cables.find((x) => x.id === o.id); if (c) c.via = o.via; });
-    project.groups = layoutUndo.groups;
-    layoutUndo = null; $('#btnUndoArrange').hidden = true;
-    commit(); setTimeout(zoomFit, 30); flash('Rangement annulé.');
   }
 
   function zoomFit() {
@@ -3553,7 +3629,7 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
   function loadProjectText(t, h, name) {
     try {
       const p = JSON.parse(t); if (!p.devices) throw new Error('Fichier non reconnu');
-      loading = true; project = normalize(p); ui.selected = null; commit(); loading = false;
+      loading = true; project = normalize(p); ui.selected = null; commit(); loading = false; resetHistory(); syncLayoutButtons();
       fileHandle = h || null; rememberHandle(fileHandle); setClean(name || '');
       setTimeout(zoomFit, 50);
     } catch (err) { loading = false; notify('Impossible d\'ouvrir : ' + err.message); }
@@ -3605,7 +3681,7 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     e.target.value = '';
   };
   $('#btnNew').onclick = () => confirmBox('Créer un projet vide ?' + (dirty ? ' Des modifications ne sont pas enregistrées dans le fichier.' : ''), () => {
-    loading = true; project = emptyProject(); ui.selected = null; commit(); loading = false;
+    loading = true; project = emptyProject(); ui.selected = null; commit(); loading = false; resetHistory(); syncLayoutButtons();
     fileHandle = null; rememberHandle(null); setClean('');
   }, 'Nouveau projet');
   // raccourcis : ⌘/Ctrl+S, ⌘/Ctrl+Maj+S, ⌘/Ctrl+O (actifs même dans un champ de saisie)
@@ -3614,6 +3690,13 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
   document.addEventListener('keydown', (ev) => {
     if (!(ev.metaKey || ev.ctrlKey)) return;
     const k = ev.key.toLowerCase();
+    if (k === 'z' || k === 'y') {
+      const a = document.activeElement;
+      if (a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/checkbox|radio|color|range/.test(a.type)))) return;
+      ev.preventDefault();
+      if (k === 'y' || ev.shiftKey) redo(); else undo();
+      return;
+    }
     if (k === 's') { ev.preventDefault(); if (ev.shiftKey) saveAs(); else saveFile(); }
     else if (k === 'o') { ev.preventDefault(); openFile(); }
   });
@@ -3673,8 +3756,10 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     b.onclick = () => { ui.mode = b.dataset.mode; $$('#viewModes button').forEach((x) => x.classList.toggle('active', x === b)); renderCanvas(); };
   });
   $('#showRooms').onchange = (e) => { ui.showRooms = e.target.checked; renderCanvas(); };
-  $('#btnArrange').onclick = () => { $$('.menu.open').forEach((x) => x.classList.remove('open')); autoArrange(); };
-  $('#btnUndoArrange').onclick = () => { $$('.menu.open').forEach((x) => x.classList.remove('open')); undoArrange(); };
+  $('#btnArrange').onclick = () => { $$('.menu.open').forEach((x) => x.classList.remove('open')); setLayoutView('auto', true); };
+  $$('#layoutModes button').forEach((b) => { b.onclick = () => setLayoutView(b.dataset.layout); });
+  $('#btnUndo').onclick = undo;
+  $('#btnRedo').onclick = redo;
   $('#tidyView').onchange = (e) => { ui.tidy = e.target.checked; renderCanvas(); };
   $('#avoidDevices').onchange = (e) => { ui.avoid = e.target.checked; renderCanvas(); };
   $('#showBundles').onchange = (e) => { ui.bundle = e.target.checked; if (ui.selected && ui.selected.type === 'bundle') select(null); else renderCanvas(); };
@@ -3747,6 +3832,7 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
   renderAll();
   try { dirty = localStorage.getItem('synoptique.dirty') === '1'; } catch (e) { dirty = false; }
   updateFileState();
+  resetHistory(); syncLayoutButtons();
   setTimeout(zoomFit, 30);
 })();
 </script>
