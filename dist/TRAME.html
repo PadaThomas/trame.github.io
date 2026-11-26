@@ -2625,13 +2625,13 @@ body.layout-auto #view-canvas::before { content: 'Vue rangée — vos positions 
   const layoutView = () => (project.layout && project.layout.view) || 'manual';
   function capturePositions() {
     return {
-      devs: Object.fromEntries(project.devices.map((d) => [d.id, { x: d.x, y: d.y, w: d.w, h: d.h }])),
+      devs: Object.fromEntries(project.devices.map((d) => [d.id, { x: d.x, y: d.y, w: d.w, h: d.h, mirror: !!d.mirror }])),
       via: Object.fromEntries(project.cables.filter((c) => c.via).map((c) => [c.id, c.via])),
       gvia: Object.fromEntries(Object.entries(project.groups || {}).filter(([, g]) => g.via).map(([k, g]) => [k, g.via]))
     };
   }
   function applyPositions(snap) {
-    project.devices.forEach((d) => { const o = snap.devs[d.id]; if (o) { d.x = o.x; d.y = o.y; if (o.w != null) { d.w = o.w; d.h = o.h; } } });
+    project.devices.forEach((d) => { const o = snap.devs[d.id]; if (o) { d.x = o.x; d.y = o.y; if (o.w != null) { d.w = o.w; d.h = o.h; } if (o.mirror) d.mirror = true; else delete d.mirror; } });
     project.cables.forEach((c) => { if (snap.via[c.id]) c.via = snap.via[c.id]; else delete c.via; });
     Object.entries(project.groups || {}).forEach(([k, g]) => { if (snap.gvia[k]) g.via = snap.gvia[k]; else delete g.via; });
   }
@@ -2701,7 +2701,7 @@ body.layout-auto #view-canvas::before { content: 'Vue rangée — vos positions 
     const zones = [...new Set(units.map(zoneOf))];
     const zoneRank = (z) => { const us = units.filter((u) => zoneOf(u) === z); return us.reduce((a, u) => a + rank.get(u), 0) / us.length; };
     zones.sort((a, b) => zoneRank(a) - zoneRank(b));
-    const GX = 130, GY = 36, ZGAP = 140, MAXW = 2600;
+    const GX = 130, GY = 36, ZGAP = 140, MAXW = 4200;
     // 1) bloc de chaque zone : colonnes par rang, ordre par barycentre ; positions relatives au coin du bloc
     const blocks = new Map();
     zones.forEach((z) => {
@@ -2726,22 +2726,8 @@ body.layout-auto #view-canvas::before { content: 'Vue rangée — vos positions 
       });
       blocks.set(z, { W, H, rel });
     });
-    // 2) zones « en bout de chaîne » (reliées à une seule autre zone, en aval : boîtiers muraux d'une salle…) : sous la zone qui les dessert
-    const zEdges = new Map(zones.map((z) => [z, new Set()]));
-    units.forEach((u) => out.get(u).forEach((v) => { const a = zoneOf(u), b = zoneOf(v); if (a !== b) { zEdges.get(a).add(b); zEdges.get(b).add(a); } }));
+    // 2) sens de lecture : toutes les zones se suivent de gauche à droite dans l'ordre du signal
     const parentZone = new Map();
-    zones.forEach((z) => {
-      const nb = [...zEdges.get(z)];
-      if (nb.length === 1 && zoneRank(z) > zoneRank(nb[0]) && zones.length > 2) parentZone.set(z, nb[0]);
-    });
-    // pour chaque zone mère, la plus grosse zone en aval continue la ligne principale (le signal va vers la droite)
-    const zSize = (z) => units.filter((u) => zoneOf(u) === z).length;
-    new Set(parentZone.values()).forEach((pz) => {
-      const kids = zones.filter((k) => parentZone.get(k) === pz);
-      const main = kids.slice().sort((a, b) => zSize(b) - zSize(a))[0];
-      const pzHasMainNext = zones.some((z) => !parentZone.has(z) && z !== pz && zEdges.get(pz).has(z) && zoneRank(z) > zoneRank(pz));
-      if (!pzHasMainNext) parentZone.delete(main);
-    });
     // 3) placement : zones principales de gauche à droite (retour à la ligne si trop large), zones en bout de chaîne dessous
     const pos = new Map();
     let cx = 0, cy = 0, rowBottom = 0;
@@ -2756,6 +2742,23 @@ body.layout-auto #view-canvas::before { content: 'Vue rangée — vos positions 
       kids.forEach((k) => { place(k, cx, y); y += blocks.get(k).H + ZGAP; });
       rowBottom = Math.max(rowBottom, y - ZGAP);
       cx += colW + ZGAP;
+    });
+    // orientation : chaque appareil est retourné si cela met ses câbles du côté de leur autre bout
+    //   (ce qui vient de la gauche arrive à gauche, ce qui part vers la droite sort à droite)
+    const rk = (devId) => rank.get(unitOf(devId));
+    devs.filter((d) => !isRack(d)).forEach((d) => {
+      let keep = 0, flip = 0;
+      project.cables.forEach((c) => {
+        if (c.sig === 'power') return;
+        let me, other;
+        if (c.a.d === d.id) { me = c.a; other = c.b; } else if (c.b.d === d.id) { me = c.b; other = c.a; } else return;
+        const ro = rk(other.d), rm = rk(d.id);
+        if (ro == null || rm == null || ro === rm) return;
+        const wantLeft = ro < rm;
+        const visLeftNow = visSide(d, me.s) === 'L';
+        if (visLeftNow === wantLeft) keep++; else flip++;
+      });
+      if (flip > keep) d.mirror = !d.mirror;
     });
     // application (une baie emmène ses appareils)
     pos.forEach((p, u) => {
