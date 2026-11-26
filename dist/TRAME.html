@@ -1963,8 +1963,20 @@ body.layout-auto #view-canvas::before { content: 'Vue rangée — vos positions 
     if (cableLoose(c)) return null;
     if (c.group) return 'g:' + c.group;
     if (c.infra && !c.ungrouped) return 'p:' + [c.a.d, c.b.d].sort().join('|');
-    if (tidyOn() && !c.ungrouped && c.a.d !== c.b.d) return 'v:' + [c.a.d, c.b.d].sort().join('|');
+    if (tidyOn() && !c.ungrouped && c.a.d !== c.b.d) {
+      // on ne regroupe que des câbles qui vont dans le même sens et partent / arrivent du même côté :
+      // un départ (DMX out) et un retour (DMX in) entre les deux mêmes appareils restent séparés
+      const [s, t] = cableFlow(c);
+      const ds = devById(s.d), dt = devById(t.d);
+      return 'v:' + s.d + '>' + t.d + ':' + (ds ? visSide(ds, s.s) : '') + (dt ? visSide(dt, t.s) : '');
+    }
     return null;
+  }
+  // sens du signal d'un câble : [source, destination]
+  function cableFlow(c) {
+    const pa = portOf(devById(c.a.d), c.a.p), pb = portOf(devById(c.b.d), c.b.p);
+    if (pa && pb && ((pa.dir === 'in' && pb.dir !== 'in') || (pb.dir === 'out' && pa.dir !== 'out'))) return [c.b, c.a];
+    return [c.a, c.b];
   }
   function groupInfo(key) {
     project.groups = project.groups || {};
