@@ -431,6 +431,8 @@
 
   // ---------------------------------------------------------------- géométrie
   const HEAD = 32, ROW = 17;
+  // en-tête d'un appareil : une ligne de plus pour le patch DMX (adresse, univers, mode) sous la marque · modèle
+  const headOf = (dev) => HEAD + (hasPatch(dev) ? 13 : 0);
 
   function connectedSet() {
     const set = new Set();
@@ -472,7 +474,7 @@
       const o = c.a.d === dev.id && c.a.p === p.id ? c.b : c.a;
       const od = devById(o.d); if (!od) return;
       const i = Math.max(0, od.ports.findIndex((q) => q.id === o.p));
-      ys.push(od.y + HEAD + 6 + Math.min(i, 30) * ROW / 3);
+      ys.push(od.y + headOf(od) + 6 + Math.min(i, 30) * ROW / 3);
     });
     return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : Infinity;
   }
@@ -493,6 +495,7 @@
   function layout(dev) {
     if (isRack(dev)) return { w: dev.w, h: dev.h, rows: [], pos: {} };
     const w = ui.mode === 'simple' ? 180 : 240;
+    const head = headOf(dev);
     const vis = dev.ports.filter((p) => portVisible(dev, p));
     const pass = tidySort(dev, vis.filter((p) => p.pass));
     // colonnes à l'écran (tient compte du miroir) ; r.left / r.right = colonne visuelle
@@ -522,14 +525,14 @@
     const pos = {};
     const X = (s) => (visSide(dev, s) === 'L' ? 0 : w);
     rows.forEach((r, i) => {
-      const y = HEAD + 6 + i * ROW + ROW / 2;
+      const y = head + 6 + i * ROW + ROW / 2;
       if (r.header) { pos['grp:' + r.peer + ':L'] = { x: X('L'), y }; pos['grp:' + r.peer + ':R'] = { x: X('R'), y }; }
       if (r.pass) { pos[r.pass.id + ':L'] = { x: X('L'), y }; pos[r.pass.id + ':R'] = { x: X('R'), y }; }
       if (r.left) pos[r.left.id + ':' + defaultSide(r.left)] = { x: 0, y };
       if (r.right) pos[r.right.id + ':' + defaultSide(r.right)] = { x: w, y };
     });
-    const h = HEAD + 6 + rows.length * ROW + (rows.length ? 6 : 2);
-    return { w, h, rows, pos };
+    const h = head + 6 + rows.length * ROW + (rows.length ? 6 : 2);
+    return { w, h, head, rows, pos };
   }
 
   // ---------------------------------------------------------------- rendu SVG
@@ -600,9 +603,9 @@
       const lay = layouts[d.id];
       const g = el('g', { class: 'dev' + (sel('device', d.id) ? ' selected' : ''), 'data-dev': d.id, transform: `translate(${d.x},${d.y})` }, ld);
       el('rect', { width: lay.w, height: lay.h, rx: 6, class: 'dev-body' }, g);
-      el('path', { d: `M0 6 a6 6 0 0 1 6 -6 h${lay.w - 12} a6 6 0 0 1 6 6 v${HEAD - 6} h-${lay.w} z`, class: 'dev-head' }, g);
+      el('path', { d: `M0 6 a6 6 0 0 1 6 -6 h${lay.w - 12} a6 6 0 0 1 6 6 v${lay.head - 6} h-${lay.w} z`, class: 'dev-head' }, g);
       const room = roomById(d.room);
-      if (room) el('rect', { x: 0, y: HEAD - 3, width: lay.w, height: 3, fill: room.color }, g);
+      if (room) el('rect', { x: 0, y: lay.head - 3, width: lay.w, height: 3, fill: room.color }, g);
       text(g, 8, 11, trunc(d.name, (ui.mode === 'simple' ? 24 : 32) - (d.ip ? 14 : 0)), 'dev-title');
       if (d.ip) {
         const ipT = text(g, lay.w - 8, 11, d.ip + ' ↗', 'dev-ip', 'end');
@@ -610,16 +613,16 @@
         el('title', {}, ipT).textContent = 'Ouvrir la page de configuration : ' + configUrl(d);
       }
       const patch = hasPatch(d) ? dmxLabel(d) : '';
-      text(g, 8, 24, trunc(d.maker + ' · ' + d.model, patch ? 18 : 40), 'dev-sub');
+      text(g, 8, 24, trunc(d.maker + ' · ' + d.model, 40), 'dev-sub');
       if (patch) {
         const bad = _dmxBad.get(d.id);
-        const pt = text(g, lay.w - 8, 24, (bad ? '⚠ ' : '') + 'DMX ' + trunc(patch, 26), 'dev-dmx' + (bad ? ' bad' : ''), 'end');
+        const pt = text(g, 8, 37, (bad ? '⚠ ' : '') + 'DMX ' + trunc(patch, ui.mode === 'simple' ? 26 : 36), 'dev-dmx' + (bad ? ' bad' : ''));
         el('title', {}, pt).textContent = 'Patch DMX : ' + patch + (dmxOf(d).auto ? ' (univers déduit du câble)' : '') + (bad ? '\n⚠ ' + bad : '');
       }
       const detail = ui.mode === 'detail';
       const nameLen = detail ? 14 : 22;
       lay.rows.forEach((r, i) => {
-        const y = HEAD + 6 + i * ROW + ROW / 2;
+        const y = lay.head + 6 + i * ROW + ROW / 2;
         if (r.header) {
           // titre du bloc : boîtier d'où arrivent ces liaisons
           el('rect', { x: 1, y: y - ROW / 2 + 1, width: lay.w - 2, height: ROW - 2, class: 'port-group-bg' }, g);
@@ -1091,7 +1094,7 @@
     const g = lay.pos['grp:' + peerId + ':' + e.s];
     if (g) return { x: dev.x + g.x, y: dev.y + g.y, s: g.x === 0 ? 'L' : 'R' };
     const left = visSide(dev, e.s) === 'L';
-    return { x: dev.x + (left ? 0 : lay.w), y: dev.y + Math.min(lay.h - 6, HEAD + 8), s: left ? 'L' : 'R' };
+    return { x: dev.x + (left ? 0 : lay.w), y: dev.y + Math.min(lay.h - 6, (lay.head || HEAD) + 8), s: left ? 'L' : 'R' };
   }
   function endpoint(e, layouts) {
     const dev = devById(e.d); if (!dev) return null;

@@ -311,7 +311,7 @@
     { id: 'wall-8rj-2dmx', maker: 'Salle', model: 'Boîtier mural 8 RJ45 + 2 DMX', cat: 'patch', verified: false,
       notes: 'Boîtier encastré. Gauche = départ vers la baie scéno, droite = face.',
       ports: ports(s('RJ45', 8, 'etherCON', 'eth', 'io', { pass: true }), s('DMX', 2, 'XLR5F', 'dmx', 'io', { pass: true })) },
-    { id: 'wall-custom', maker: 'Salle', model: 'Boîtier mural (vide)', cat: 'patch', verified: false,
+    { id: 'wall-custom', maker: 'Salle', model: 'Boîtier mural', cat: 'patch', verified: false,
       notes: 'Ajoutez les ports dans l\'inspecteur, par ex. « 2 x RJ45 ; etherCON ; eth ; io ; pass ».',
       ports: [] },
     { id: 'baie-sceno', maker: 'Salle', model: 'Baie scéno (répartiteur)', cat: 'patch', verified: false,
