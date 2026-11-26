@@ -384,6 +384,16 @@ html { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 /* dépôt d'un fichier .trame sur la fenêtre */
 body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; position: fixed; inset: 12px; z-index: 100; display: flex; align-items: center; justify-content: center;
   border: 3px dashed var(--accent); border-radius: 16px; background: color-mix(in srgb, var(--bg) 80%, transparent); font: 600 20px var(--trame-font-display); color: var(--ink); pointer-events: none; }
+
+/* baie : bloc d'arrivée par boîtier */
+.port-group { fill: var(--accent); font: 600 10px var(--trame-font-ui); letter-spacing: .03em; }
+.port-group-bg { fill: color-mix(in srgb, var(--accent) 12%, transparent); rx: 3; }
+/* patch DMX dans l'en-tête d'un projecteur */
+.dev-dmx { fill: var(--trame-orange); font: 600 9.5px var(--mono); }
+.dev-dmx.bad { fill: var(--danger); }
+.dmx-row { gap: 6px; align-items: flex-end; }
+.dmx-row .field { flex: 1; min-width: 0; }
+.dmx-row input, .mono { font-family: var(--mono); width: 100%; }
 </style>
 </head>
 <body>
@@ -1375,6 +1385,10 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     const n = ev.target.closest && ev.target.closest('[data-nextissue]');
     if (!n) return;
     const want = n.dataset.nextissue;
+    if (want === 'dmx') {
+      const ids = [...dmxConflicts().keys()]; if (!ids.length) return;
+      issueIdx = (issueIdx + 1) % ids.length; select({ type: 'device', id: ids[issueIdx] }); return;
+    }
     const list = project.cables.filter((c) => { const is = cableAdapterIssue(c); return is && (want === 'bad' ? is.kind === 'impossible' : is.kind !== 'impossible' && !c.adapter); });
     if (!list.length) return;
     issueIdx = (issueIdx + 1) % list.length;
@@ -1392,6 +1406,47 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
   function subnetOf(cable) { const s = sigById(cable.sig); return (s.subnets || []).find((n) => n.id === cable.sub); }
   function cableColor(c) { const n = subnetOf(c); return n ? n.color : sigById(c.sig).color; }
   function isRack(d) { return d.cat === 'rack'; }
+  // ---- Patch DMX (projecteurs, gradateurs) : univers, adresse, mode, nombre de canaux
+  const hasPatch = (d) => d && (d.cat === 'fixture' || d.cat === 'dimmer');
+  // univers déduit du câble arrivant sur l'entrée DMX (sous-réseau « Univers 2 » → 2)
+  function autoUniverse(d) {
+    const ins = new Set(d.ports.filter((p) => p.sig === 'dmx' && p.dir === 'in').map((p) => p.id));
+    const c = project.cables.find((x) => (x.a.d === d.id && ins.has(x.a.p)) || (x.b.d === d.id && ins.has(x.b.p)));
+    const n = c && subnetOf(c);
+    if (!n) return '';
+    const m = /(\d+)/.exec(n.name);
+    return m ? m[1] : n.name;
+  }
+  function dmxOf(d) {
+    const x = d.dmx || {};
+    const univ = String(x.univ || '').trim() || autoUniverse(d);
+    const addr = parseInt(x.addr, 10), ch = Math.max(1, parseInt(x.ch, 10) || 1);
+    return { univ, auto: !String(x.univ || '').trim() && !!univ, addr: addr > 0 ? addr : null, ch, mode: (x.mode || '').trim(), end: addr > 0 ? addr + ch - 1 : null };
+  }
+  const pad3 = (n) => String(n).padStart(3, '0');
+  function dmxLabel(d) {
+    const x = dmxOf(d); if (!x.addr) return '';
+    return (x.univ ? 'U' + x.univ + ' · ' : '') + pad3(x.addr) + (x.ch > 1 ? '–' + pad3(x.end) : '') + (x.mode ? ' · ' + x.mode : '');
+  }
+  // conflits : adresses qui se chevauchent dans le même univers, ou qui dépassent 512
+  function dmxConflicts() {
+    const out = new Map();   // deviceId -> message
+    const byU = new Map();
+    project.devices.filter(hasPatch).forEach((d) => {
+      const x = dmxOf(d); if (!x.addr) return;
+      if (x.end > 512) out.set(d.id, 'dépasse le canal 512 (' + pad3(x.addr) + '–' + x.end + ')');
+      const k = x.univ || '?';
+      (byU.get(k) || byU.set(k, []).get(k)).push({ d, x });
+    });
+    byU.forEach((list) => {
+      list.sort((a, b) => a.x.addr - b.x.addr);
+      for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length && list[j].x.addr <= list[i].x.end; j++) {
+        out.set(list[i].d.id, 'chevauche ' + list[j].d.name + ' (' + pad3(list[j].x.addr) + ')');
+        out.set(list[j].d.id, 'chevauche ' + list[i].d.name + ' (' + pad3(list[i].x.addr) + '–' + pad3(list[i].x.end) + ')');
+      }
+    });
+    return out;
+  }
   // Nom automatique d'une liaison fixe : « départ – arrivée ».
   // Un répartiteur / panneau rangé dans une baie prend le nom de la baie (ex : « Baie scéno »).
   function placeName(id) {
@@ -1611,6 +1666,7 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     return set;
   }
   let _conn = new Set();
+  let _dmxBad = new Map();
   let _portCable = new Map();
   // Vue simplifiée : seuls les ports câblés avec un câble volant sont affichés.
   // Une liaison fixe n'apparaît que si ses deux bouts sont câblés en volant (le signal la traverse vraiment).
@@ -1634,6 +1690,16 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     return true;
   }
 
+  // appareil à l'autre bout de la liaison fixe de chaque port (portId -> deviceId)
+  function infraPeers(dev) {
+    const m = new Map();
+    project.cables.forEach((c) => {
+      if (!c.infra) return;
+      if (c.a.d === dev.id && c.b.d !== dev.id) m.set(c.a.p, c.b.d);
+      else if (c.b.d === dev.id && c.a.d !== dev.id) m.set(c.b.p, c.a.d);
+    });
+    return m;
+  }
   function layout(dev) {
     if (isRack(dev)) return { w: dev.w, h: dev.h, rows: [], pos: {} };
     const w = ui.mode === 'simple' ? 180 : 240;
@@ -1644,7 +1710,19 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     const left = vis.filter((p) => !p.pass && onScreenLeft(p));
     const right = vis.filter((p) => !p.pass && !onScreenLeft(p));
     const rows = [];
-    pass.forEach((p) => rows.push({ pass: p }));
+    // Répartiteur / panneau qui reçoit des liaisons fixes de plusieurs boîtiers : un bloc par boîtier, avec son titre
+    const peers = dev.cat === 'patch' ? infraPeers(dev) : null;
+    const groupsOn = peers && new Set(pass.map((p) => peers.get(p.id)).filter(Boolean)).size >= 2;
+    if (groupsOn) {
+      const order = [], by = new Map();
+      pass.forEach((p) => { const k = peers.get(p.id) || ''; if (!by.has(k)) { by.set(k, []); order.push(k); } by.get(k).push(p); });
+      order.sort((a, b) => (a === '' ? -1 : b === '' ? 1 : 0));   // ports sans liaison fixe d'abord
+      order.forEach((k) => {
+        const peer = k && devById(k);
+        if (peer) rows.push({ header: peer.name, peer: k });
+        by.get(k).forEach((p) => rows.push({ pass: p, short: peer && p.name.startsWith(peer.name + ' – ') ? p.name.slice(peer.name.length + 3) : null }));
+      });
+    } else pass.forEach((p) => rows.push({ pass: p }));
     for (let i = 0; i < Math.max(left.length, right.length); i++) rows.push({ left: left[i], right: right[i] });
     const pos = {};
     const X = (s) => (visSide(dev, s) === 'L' ? 0 : w);
@@ -1677,6 +1755,7 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
 
   function renderCanvas() {
     _conn = connectedSet();
+    _dmxBad = dmxConflicts();
     _portCable = new Map();
     project.cables.forEach((c) => ['a', 'b'].forEach((k) => { if (endValid(c[k])) _portCable.set(c[k].d + ':' + c[k].p + ':' + c[k].s, c); }));
     _simple = simpleVisibleSet();
@@ -1734,13 +1813,25 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
         ipT.dataset.url = configUrl(d);
         el('title', {}, ipT).textContent = 'Ouvrir la page de configuration : ' + configUrl(d);
       }
-      text(g, 8, 24, trunc(d.maker + ' · ' + d.model, 40), 'dev-sub');
+      const patch = hasPatch(d) ? dmxLabel(d) : '';
+      text(g, 8, 24, trunc(d.maker + ' · ' + d.model, patch ? 18 : 40), 'dev-sub');
+      if (patch) {
+        const bad = _dmxBad.get(d.id);
+        const pt = text(g, lay.w - 8, 24, (bad ? '⚠ ' : '') + 'DMX ' + trunc(patch, 26), 'dev-dmx' + (bad ? ' bad' : ''), 'end');
+        el('title', {}, pt).textContent = 'Patch DMX : ' + patch + (dmxOf(d).auto ? ' (univers déduit du câble)' : '') + (bad ? '\n⚠ ' + bad : '');
+      }
       const detail = ui.mode === 'detail';
       const nameLen = detail ? 14 : 22;
       lay.rows.forEach((r, i) => {
         const y = HEAD + 6 + i * ROW + ROW / 2;
+        if (r.header) {
+          // titre du bloc : boîtier d'où arrivent ces liaisons
+          el('rect', { x: 1, y: y - ROW / 2 + 1, width: lay.w - 2, height: ROW - 2, class: 'port-group-bg' }, g);
+          text(g, lay.w / 2, y, '↘ ' + trunc(r.header, 34), 'port-group', 'middle');
+          return;
+        }
         if (r.pass) {
-          const lbl = text(g, lay.w / 2, y, trunc(r.pass.name, detail ? 28 : 24), 'port-label', 'middle');
+          const lbl = text(g, lay.w / 2, y, trunc(r.short || r.pass.name, detail ? 28 : 24), 'port-label', 'middle');
           if (detail) { const ts = el('tspan', { class: 'port-conn' }, lbl); ts.textContent = '  ' + r.pass.conn; }
           dot(g, d, r.pass, 'L', lay.pos[r.pass.id + ':L'].x, y); dot(g, d, r.pass, 'R', lay.pos[r.pass.id + ':R'].x, y);
         }
@@ -2597,6 +2688,19 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
       h += `<div class="field"><label>Adresse IP</label><div class="row"><input id="iIp" class="grow" value="${esc(d.ip || '')}" placeholder="ex : 10.0.0.21"><button id="iOpen" title="Ouvrir la page de configuration">Config ↗</button></div></div>
         <div class="field"><label>Page de configuration (si différente de http://IP/)</label><input id="iCfg" value="${esc(d.configUrl || '')}" placeholder="ex : https://10.0.0.21:8443/"></div>`;
     }
+    if (hasPatch(d)) {
+      const x = dmxOf(d), bad = dmxConflicts().get(d.id), auto = autoUniverse(d);
+      const modes = [...new Set(project.devices.filter((o) => o.tpl === d.tpl && o.dmx && o.dmx.mode).map((o) => o.dmx.mode))];
+      h += `<h3>Patch DMX</h3>
+        <div class="row dmx-row">
+          <div class="field"><label>Univers</label><input id="iUniv" class="mono" value="${esc((d.dmx && d.dmx.univ) || '')}" placeholder="${esc(auto || '1')}" title="Vide = univers du câble DMX qui arrive (${esc(auto || 'aucun')})"></div>
+          <div class="field"><label>Adresse</label><input id="iAddr" class="mono" type="number" min="1" max="512" value="${x.addr || ''}" placeholder="001"></div>
+          <div class="field"><label>Canaux</label><input id="iCh" class="mono" type="number" min="1" max="512" value="${(d.dmx && d.dmx.ch) || ''}" placeholder="1"></div>
+        </div>
+        <div class="field"><label>Mode</label><input id="iMode" list="iModes" value="${esc(x.mode)}" placeholder="ex : Mode 2 — 16 canaux, Standard, Extended…"><datalist id="iModes">${modes.map((m) => `<option value="${esc(m)}">`).join('')}</datalist></div>
+        <p class="muted" id="iPatchInfo" style="font-size:11px">${x.addr ? 'Occupe ' + (x.univ ? 'l\'univers ' + esc(x.univ) + (x.auto ? ' (déduit du câble)' : '') + ', ' : '') + 'canaux ' + pad3(x.addr) + ' à ' + pad3(x.end) + '.' : 'Renseignez l\'adresse de départ et le nombre de canaux du mode.'}</p>
+        ${bad ? `<div class="valbox bad">⚠ Adresse ${esc(bad)}</div>` : ''}`;
+    }
     h += `<div class="field"><label>Notes</label><textarea id="iNotes" rows="2">${esc(d.notes)}</textarea></div>`;
     const hubs = project.devices.filter((x) => x.id !== d.id && (x.cat === 'patch' || isRack(x)));
     if (d.cat === 'patch') {
@@ -2637,6 +2741,11 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
       commit({ keepSide: true });
     };
     $('#iNotes').oninput = (e) => { d.notes = e.target.value; save(); };
+    if ($('#iAddr')) {
+      const upd = (k) => (e) => { d.dmx = d.dmx || {}; d.dmx[k] = e.target.value.trim(); save(); renderCanvas(); };
+      $('#iUniv').oninput = upd('univ'); $('#iAddr').oninput = upd('addr'); $('#iCh').oninput = upd('ch'); $('#iMode').oninput = upd('mode');
+      ['#iUniv', '#iAddr', '#iCh', '#iMode'].forEach((id) => { $(id).onchange = () => renderInspector(); });
+    }
     if ($('#iIp')) {
       $('#iIp').oninput = (e) => { d.ip = e.target.value.trim(); save(); renderCanvas(); };
       $('#iCfg').oninput = (e) => { d.configUrl = e.target.value.trim(); save(); };
@@ -2702,6 +2811,7 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     $('#iDetail').onclick = () => portDetailModal(d.id);
     $('#iDup').onclick = () => {
       const c = clone(d); c.id = uid(); c.x += 30; c.y += 30; c.name = d.name + ' (copie)'; c.ports.forEach((p) => { p.id = uid(); });
+      if (c.dmx && dmxOf(d).addr) { c.dmx.addr = String(dmxOf(d).end + 1); if (!c.dmx.univ && dmxOf(d).univ) c.dmx.univ = dmxOf(d).univ; }   // patch à la suite, même univers
       project.devices.push(c); ui.selected = { type: 'device', id: c.id }; commit();
     };
     $('#iSaveTpl').onclick = () => templateModal({ maker: d.maker, model: d.model + ' (perso)', cat: d.cat, doc: d.doc, ports: d.ports });
@@ -2942,9 +3052,11 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     if (!project.devices.length) return '';
     const issues = project.cables.map((c) => ({ c, is: cableAdapterIssue(c) })).filter((x) => x.is);
     const nBad = issues.filter((x) => x.is.kind === 'impossible').length, nWarn = issues.filter((x) => x.is.kind !== 'impossible' && !x.c.adapter).length;
-    const check = nBad || nWarn
+    const nDmx = dmxConflicts().size;
+    const dmxCheck = nDmx ? `<div class="valbox bad"><button data-nextissue="dmx">⚠ ${nDmx} projecteur(s) en conflit d'adresse DMX</button></div>` : '';
+    const check = dmxCheck + (nBad || nWarn
       ? `<div class="valbox ${nBad ? 'bad' : 'warn'}">${nBad ? `<button data-nextissue="bad">⛔ ${nBad} connexion(s) impossible(s)</button>` : ''}${nWarn ? `<button data-nextissue="warn">⚠︎ ${nWarn} adaptateur(s) à confirmer</button>` : ''}</div>`
-      : project.cables.length ? '<div class="valbox ok">✓ Toutes les connexions sont compatibles</div>' : '';
+      : project.cables.length ? '<div class="valbox ok">✓ Toutes les connexions sont compatibles</div>' : '');
     return `<h3>Projet</h3><p>${project.devices.length} appareils · ${project.cables.length} câbles · ${project.rooms.length} zones</p>${check}
       <p class="muted" style="font-size:11px">Astuce : sélectionnez un câble pour lui attribuer un univers / VLAN ; la couleur se propage en aval.</p>`;
   }
@@ -3166,19 +3278,19 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     groups.forEach((g) => {
       const ds = project.devices.filter((d) => (d.room || null) === g.id);
       if (!ds.length) return;
-      body += `<tr class="group"><td colspan="7">${g.color ? `<span class="swatch" style="background:${g.color}"></span> ` : ''}${esc(g.name)} <span class="muted">(${ds.length})</span></td></tr>`;
+      body += `<tr class="group"><td colspan="8">${g.color ? `<span class="swatch" style="background:${g.color}"></span> ` : ''}${esc(g.name)} <span class="muted">(${ds.length})</span></td></tr>`;
       ds.forEach((d) => {
         const used = d.ports.filter((p) => _conn.has(d.id + ':' + p.id)).length;
         const rack = devById(d.parent);
         const ip = d.ip ? `<a href="${esc(configUrl(d))}" target="_blank" rel="noopener">${esc(d.ip)}</a>` : '';
-        body += `<tr><td><b>${esc(d.name)}</b></td><td>${esc(d.maker)}</td><td>${esc(d.model)}</td><td>${ip}</td><td>${rack ? esc(rack.name) : ''}</td><td>${isRack(d) ? '' : used + ' / ' + d.ports.length}</td><td>${esc(d.notes)}</td></tr>`;
+        body += `<tr><td><b>${esc(d.name)}</b></td><td>${esc(d.maker)}</td><td>${esc(d.model)}</td><td>${ip}</td><td class="mono">${hasPatch(d) && dmxLabel(d) ? (_dmxBad.get(d.id) ? '⚠ ' : '') + esc(dmxLabel(d)) + (dmxOf(d).ch > 1 ? ' (' + dmxOf(d).ch + ' ch)' : '') : ''}</td><td>${rack ? esc(rack.name) : ''}</td><td>${isRack(d) ? '' : used + ' / ' + d.ports.length}</td><td>${esc(d.notes)}</td></tr>`;
       });
     });
     const counts = {};
     project.devices.forEach((d) => { const k = d.maker + ' ' + d.model; counts[k] = (counts[k] || 0) + 1; });
     const summary = Object.entries(counts).sort().map(([k, n]) => `<tr><td>${n}×</td><td>${esc(k)}</td></tr>`).join('');
     $('#view-devices').innerHTML = `<div class="table-actions"><h2 style="margin:0">Nomenclature</h2><span class="muted">${project.devices.length} éléments</span></div>
-      <table><tr><th>Repère</th><th>Marque</th><th>Modèle</th><th>IP</th><th>Baie</th><th>Ports utilisés</th><th>Notes</th></tr>${body}</table>
+      <table><tr><th>Repère</th><th>Marque</th><th>Modèle</th><th>IP</th><th>Patch DMX</th><th>Baie</th><th>Ports utilisés</th><th>Notes</th></tr>${body}</table>
       <h3>Récapitulatif matériel</h3><table style="width:auto">${summary}</table>`;
   }
 

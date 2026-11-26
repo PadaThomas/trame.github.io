@@ -233,3 +233,13 @@ html { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 /* dépôt d'un fichier .trame sur la fenêtre */
 body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; position: fixed; inset: 12px; z-index: 100; display: flex; align-items: center; justify-content: center;
   border: 3px dashed var(--accent); border-radius: 16px; background: color-mix(in srgb, var(--bg) 80%, transparent); font: 600 20px var(--trame-font-display); color: var(--ink); pointer-events: none; }
+
+/* baie : bloc d'arrivée par boîtier */
+.port-group { fill: var(--accent); font: 600 10px var(--trame-font-ui); letter-spacing: .03em; }
+.port-group-bg { fill: color-mix(in srgb, var(--accent) 12%, transparent); rx: 3; }
+/* patch DMX dans l'en-tête d'un projecteur */
+.dev-dmx { fill: var(--trame-orange); font: 600 9.5px var(--mono); }
+.dev-dmx.bad { fill: var(--danger); }
+.dmx-row { gap: 6px; align-items: flex-end; }
+.dmx-row .field { flex: 1; min-width: 0; }
+.dmx-row input, .mono { font-family: var(--mono); width: 100%; }
