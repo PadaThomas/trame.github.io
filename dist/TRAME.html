@@ -1712,15 +1712,20 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     const rows = [];
     // Répartiteur / panneau qui reçoit des liaisons fixes de plusieurs boîtiers : un bloc par boîtier, avec son titre
     const peers = dev.cat === 'patch' ? infraPeers(dev) : null;
-    const groupsOn = peers && new Set(pass.map((p) => peers.get(p.id)).filter(Boolean)).size >= 2;
+    // (on regroupe sur tous les ports traversants ; en vue simplifiée, le titre d'un bloc reste affiché même sans port câblé :
+    //  la liaison fixe y aboutit)
+    const allPass = dev.ports.filter((p) => p.pass && ui.filters[p.sig] !== false);
+    const visSet = new Set(pass.map((p) => p.id));
+    const groupsOn = peers && new Set(allPass.map((p) => peers.get(p.id)).filter(Boolean)).size >= 2;
     if (groupsOn) {
       const order = [], by = new Map();
-      pass.forEach((p) => { const k = peers.get(p.id) || ''; if (!by.has(k)) { by.set(k, []); order.push(k); } by.get(k).push(p); });
+      allPass.forEach((p) => { const k = peers.get(p.id) || ''; if (!by.has(k)) { by.set(k, []); order.push(k); } by.get(k).push(p); });
       order.sort((a, b) => (a === '' ? -1 : b === '' ? 1 : 0));   // ports sans liaison fixe d'abord
       order.forEach((k) => {
         const peer = k && devById(k);
-        if (peer) rows.push({ header: peer.name, peer: k });
-        by.get(k).forEach((p) => rows.push({ pass: p, short: peer && p.name.startsWith(peer.name + ' – ') ? p.name.slice(peer.name.length + 3) : null }));
+        const shown = by.get(k).filter((p) => visSet.has(p.id));
+        if (peer && (shown.length || ui.mode === 'simple')) rows.push({ header: peer.name, peer: k });
+        shown.forEach((p) => rows.push({ pass: p, short: peer && p.name.startsWith(peer.name + ' – ') ? p.name.slice(peer.name.length + 3) : null }));
       });
     } else pass.forEach((p) => rows.push({ pass: p }));
     for (let i = 0; i < Math.max(left.length, right.length); i++) rows.push({ left: left[i], right: right[i] });
@@ -1728,6 +1733,7 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     const X = (s) => (visSide(dev, s) === 'L' ? 0 : w);
     rows.forEach((r, i) => {
       const y = HEAD + 6 + i * ROW + ROW / 2;
+      if (r.header) { pos['grp:' + r.peer + ':L'] = { x: X('L'), y }; pos['grp:' + r.peer + ':R'] = { x: X('R'), y }; }
       if (r.pass) { pos[r.pass.id + ':L'] = { x: X('L'), y }; pos[r.pass.id + ':R'] = { x: X('R'), y }; }
       if (r.left) pos[r.left.id + ':' + defaultSide(r.left)] = { x: 0, y };
       if (r.right) pos[r.right.id + ':' + defaultSide(r.right)] = { x: w, y };
@@ -1855,7 +1861,10 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
       if (ui.filters[c.sig] === false) return;
       const va = endValid(c.a), vb = endValid(c.b);
       if (!va || !vb) { if (va || vb) drawStub(lc, c, va ? c.a : c.b, layouts); return; }
-      const A = endpoint(c.a, layouts), B = endpoint(c.b, layouts);
+      let A = endpoint(c.a, layouts), B = endpoint(c.b, layouts);
+      // vue simplifiée : une liaison fixe reste tracée même si ses ports sont masqués ;
+      // elle aboutit au titre du bloc (baie) ou au bord de l'appareil
+      if (c.infra && ui.mode === 'simple') { A = A || anchorPoint(c.a, c.b.d, layouts); B = B || anchorPoint(c.b, c.a.d, layouts); }
       if (!A || !B) return;
       const key = ui.bundle ? groupKeyOf(c) : null;
       if (key) { (groups[key] = groups[key] || []).push({ c, A, B }); return; }
@@ -2270,6 +2279,13 @@ body.drop-file::after { content: 'Déposez le fichier .trame pour l\'ouvrir'; po
     const t = el('title', {}, c); t.textContent = `${port.name} — ${port.conn} — ${sigById(port.sig).name} (${port.dir})` + (cab ? ' · câblé' + (sub ? ' : ' + sub.name : '') : '');
   }
 
+  function anchorPoint(e, peerId, layouts) {
+    const dev = devById(e.d), lay = layouts[e.d]; if (!dev || !lay) return null;
+    const g = lay.pos['grp:' + peerId + ':' + e.s];
+    if (g) return { x: dev.x + g.x, y: dev.y + g.y, s: g.x === 0 ? 'L' : 'R' };
+    const left = visSide(dev, e.s) === 'L';
+    return { x: dev.x + (left ? 0 : lay.w), y: dev.y + Math.min(lay.h - 6, HEAD + 8), s: left ? 'L' : 'R' };
+  }
   function endpoint(e, layouts) {
     const dev = devById(e.d); if (!dev) return null;
     const lay = layouts[e.d]; const p = lay.pos[e.p + ':' + e.s];
