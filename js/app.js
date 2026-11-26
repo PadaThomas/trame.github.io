@@ -18,7 +18,7 @@
   // ---------------------------------------------------------------- état
   let project;
   const ui = {
-    tab: 'canvas', mode: 'detail', showRooms: true, bundle: true, avoid: true, libOpen: new Set(), filters: {},
+    tab: 'canvas', mode: 'detail', showRooms: true, bundle: true, avoid: true, tidy: true, libOpen: new Set(), filters: {},
     selected: null,            // {type:'device'|'cable'|'bundle', id}
     multi: new Set(),          // câbles sélectionnés avec Maj+clic (pour regrouper)
     pending: null,             // {d,p,s} premier port cliqué
@@ -420,6 +420,24 @@
     return true;
   }
 
+  // ---- Lisibilité (vue simplifiée) : ports rangés selon la direction de leurs câbles, tracés droits, câbles parallèles regroupés
+  const tidyOn = () => ui.mode === 'simple' && ui.tidy;
+  // hauteur moyenne (monde) des extrémités opposées des câbles d'un port : sert à ranger les ports pour éviter les croisements
+  function peerY(dev, p) {
+    const ys = [];
+    ['L', 'R'].forEach((side) => {
+      const c = _portCable.get(dev.id + ':' + p.id + ':' + side); if (!c) return;
+      const o = c.a.d === dev.id && c.a.p === p.id ? c.b : c.a;
+      const od = devById(o.d); if (!od) return;
+      const i = Math.max(0, od.ports.findIndex((q) => q.id === o.p));
+      ys.push(od.y + HEAD + 6 + Math.min(i, 30) * ROW / 3);
+    });
+    return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : Infinity;
+  }
+  function tidySort(dev, list) {
+    if (!tidyOn()) return list;
+    return list.map((p, i) => ({ p, i, y: peerY(dev, p) })).sort((a, b) => (a.y - b.y) || (a.i - b.i)).map((x) => x.p);
+  }
   // appareil à l'autre bout de la liaison fixe de chaque port (portId -> deviceId)
   function infraPeers(dev) {
     const m = new Map();
@@ -434,11 +452,11 @@
     if (isRack(dev)) return { w: dev.w, h: dev.h, rows: [], pos: {} };
     const w = ui.mode === 'simple' ? 180 : 240;
     const vis = dev.ports.filter((p) => portVisible(dev, p));
-    const pass = vis.filter((p) => p.pass);
+    const pass = tidySort(dev, vis.filter((p) => p.pass));
     // colonnes à l'écran (tient compte du miroir) ; r.left / r.right = colonne visuelle
     const onScreenLeft = (p) => visSide(dev, defaultSide(p)) === 'L';
-    const left = vis.filter((p) => !p.pass && onScreenLeft(p));
-    const right = vis.filter((p) => !p.pass && !onScreenLeft(p));
+    const left = tidySort(dev, vis.filter((p) => !p.pass && onScreenLeft(p)));
+    const right = tidySort(dev, vis.filter((p) => !p.pass && !onScreenLeft(p)));
     const rows = [];
     // Répartiteur / panneau qui reçoit des liaisons fixes de plusieurs boîtiers : un bloc par boîtier, avec son titre
     const peers = dev.cat === 'patch' ? infraPeers(dev) : null;
@@ -453,7 +471,7 @@
       order.sort((a, b) => (a === '' ? -1 : b === '' ? 1 : 0));   // ports sans liaison fixe d'abord
       order.forEach((k) => {
         const peer = k && devById(k);
-        const shown = by.get(k).filter((p) => visSet.has(p.id));
+        const shown = tidySort(dev, by.get(k).filter((p) => visSet.has(p.id)));
         if (peer && (shown.length || ui.mode === 'simple')) rows.push({ header: peer.name, peer: k });
         shown.forEach((p) => rows.push({ pass: p, short: peer && p.name.startsWith(peer.name + ' – ') ? p.name.slice(peer.name.length + 3) : null }));
       });
@@ -612,6 +630,7 @@
     if (cableLoose(c)) return null;
     if (c.group) return 'g:' + c.group;
     if (c.infra && !c.ungrouped) return 'p:' + [c.a.d, c.b.d].sort().join('|');
+    if (tidyOn() && !c.ungrouped && c.a.d !== c.b.d) return 'v:' + [c.a.d, c.b.d].sort().join('|');
     return null;
   }
   function groupInfo(key) {
@@ -742,6 +761,10 @@
     const dx = Math.max(40, Math.abs(B.x - A.x) / 2);
     const c1 = { x: A.x + (sa === 'L' ? -dx : dx), y: A.y }, c2 = { x: B.x + (sb === 'L' ? -dx : dx), y: B.y };
     const plain = { d: `M${A.x},${A.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${B.x},${B.y}`, mid: mid(A, B) };
+    if (tidyOn()) {
+      const pts = orthoRoute(A, B, sa, sb);
+      if (pts) { spreadLanes(pts); markPath(polySamples(pts)); return { d: roundedPath(pts), mid: polyMid(pts) }; }
+    }
     if (!ui.avoid) return plain;
     const bz = bezierSamples(A, c1, c2, B);
     const hit = occHits(bz, A, B);
@@ -1651,7 +1674,7 @@
     if (cs.length < 2) { ui.selected = null; renderInspector(); return; }
     const info = groupInfo(key);
     const devs = [...new Set(cs.flatMap((c) => [c.a.d, c.b.d]))].map(devById).filter(Boolean);
-    box.innerHTML = `<h2>${key.startsWith('g:') ? 'Liaison regroupée' : 'Liaison fixe'}</h2>
+    box.innerHTML = `<h2>${key.startsWith('g:') ? 'Liaison regroupée' : key.startsWith('v:') ? 'Câbles regroupés (vue simplifiée)' : 'Liaison fixe'}</h2>
       <div class="field"><label>Nom de la liaison</label><input id="bName" value="${esc(info.name || '')}" placeholder="${esc(bundleAutoName(cs) || 'ex : Multipaire mur cour')}"></div>
       <p>${devs.map((x) => '<b>' + esc(x.name) + '</b>').join(' ↔ ')}</p>
       <p>${esc(bundleSummary(cs))}</p>
@@ -2243,6 +2266,7 @@
     b.onclick = () => { ui.mode = b.dataset.mode; $$('#viewModes button').forEach((x) => x.classList.toggle('active', x === b)); renderCanvas(); };
   });
   $('#showRooms').onchange = (e) => { ui.showRooms = e.target.checked; renderCanvas(); };
+  $('#tidyView').onchange = (e) => { ui.tidy = e.target.checked; renderCanvas(); };
   $('#avoidDevices').onchange = (e) => { ui.avoid = e.target.checked; renderCanvas(); };
   $('#showBundles').onchange = (e) => { ui.bundle = e.target.checked; if (ui.selected && ui.selected.type === 'bundle') select(null); else renderCanvas(); };
 
