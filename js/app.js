@@ -430,9 +430,12 @@
   }
 
   // ---------------------------------------------------------------- géométrie
-  const HEAD = 32, ROW = 17;
-  // en-tête d'un appareil : une ligne de plus pour le patch DMX (adresse, univers, mode) sous la marque · modèle
-  const headOf = (dev) => HEAD + (hasPatch(dev) ? 13 : 0);
+  // dimensions des appareils : la vue simplifiée est condensée (en-tête réduit au nom, lignes plus serrées, bloc plus étroit)
+  let HEAD = 32, ROW = 17;
+  const compact = () => ui.mode === 'simple';
+  function density() { HEAD = compact() ? 19 : 32; ROW = compact() ? 13 : 17; }
+  // en-tête d'un appareil : une ligne de plus pour le patch DMX (adresse, univers, mode)
+  const headOf = (dev) => { density(); return HEAD + (hasPatch(dev) ? (compact() ? 11 : 13) : 0); };
 
   function connectedSet() {
     const set = new Set();
@@ -494,8 +497,8 @@
   }
   function layout(dev) {
     if (isRack(dev)) return { w: dev.w, h: dev.h, rows: [], pos: {} };
-    const w = ui.mode === 'simple' ? 180 : 240;
     const head = headOf(dev);
+    const w = compact() ? 160 : 240;
     const vis = dev.ports.filter((p) => portVisible(dev, p));
     const pass = tidySort(dev, vis.filter((p) => p.pass));
     // colonnes à l'écran (tient compte du miroir) ; r.left / r.right = colonne visuelle
@@ -553,6 +556,8 @@
   function applyView() { world.setAttribute('transform', `translate(${ui.view.x},${ui.view.y}) scale(${ui.view.k})`); }
 
   function renderCanvas() {
+    density();
+    document.body.classList.toggle('compact-devs', compact());
     _conn = connectedSet();
     _dmxBad = dmxConflicts();
     _portCable = new Map();
@@ -613,24 +618,25 @@
         el('title', {}, ipT).textContent = 'Ouvrir la page de configuration : ' + configUrl(d);
       }
       const patch = hasPatch(d) ? dmxLabel(d) : '';
-      text(g, 8, 24, trunc(d.maker + ' · ' + d.model, 40), 'dev-sub');
+      if (!compact()) text(g, 8, 24, trunc(d.maker + ' · ' + d.model, 40), 'dev-sub');
+      el('title', {}, g.querySelector('.dev-title')).textContent = d.name + ' — ' + d.maker + ' · ' + d.model;
       if (patch) {
         const bad = _dmxBad.get(d.id);
-        const pt = text(g, 8, 37, (bad ? '⚠ ' : '') + 'DMX ' + trunc(patch, ui.mode === 'simple' ? 26 : 36), 'dev-dmx' + (bad ? ' bad' : ''));
+        const pt = text(g, 8, compact() ? 25 : 37, (bad ? '⚠ ' : '') + 'DMX ' + trunc(patch, compact() ? 28 : 36), 'dev-dmx' + (bad ? ' bad' : ''));
         el('title', {}, pt).textContent = 'Patch DMX : ' + patch + (dmxOf(d).auto ? ' (univers déduit du câble)' : '') + (bad ? '\n⚠ ' + bad : '');
       }
       const detail = ui.mode === 'detail';
-      const nameLen = detail ? 14 : 22;
+      const nameLen = detail ? 14 : 15;
       lay.rows.forEach((r, i) => {
         const y = lay.head + 6 + i * ROW + ROW / 2;
         if (r.header) {
           // titre du bloc : boîtier d'où arrivent ces liaisons
           el('rect', { x: 1, y: y - ROW / 2 + 1, width: lay.w - 2, height: ROW - 2, class: 'port-group-bg' }, g);
-          text(g, lay.w / 2, y, '↘ ' + trunc(r.header, 34), 'port-group', 'middle');
+          text(g, lay.w / 2, y, '↘ ' + trunc(r.header, detail ? 34 : 26), 'port-group', 'middle');
           return;
         }
         if (r.pass) {
-          const lbl = text(g, lay.w / 2, y, trunc(r.short || r.pass.name, detail ? 28 : 24), 'port-label', 'middle');
+          const lbl = text(g, lay.w / 2, y, trunc(r.short || r.pass.name, detail ? 28 : 26), 'port-label', 'middle');
           if (detail) { const ts = el('tspan', { class: 'port-conn' }, lbl); ts.textContent = '  ' + r.pass.conn; }
           dot(g, d, r.pass, 'L', lay.pos[r.pass.id + ':L'].x, y); dot(g, d, r.pass, 'R', lay.pos[r.pass.id + ':R'].x, y);
         }
@@ -1083,7 +1089,7 @@
     const ring = sigById(port.sig).color;
     const cab = _portCable.get(dev.id + ':' + port.id + ':' + side);
     const inner = cab ? cableColor(cab) : 'var(--dev)';
-    const c = el('circle', { cx: x, cy: y, r: 4.6, class: 'port-dot' + (pend ? ' pending' : '') + (cab ? ' used' : ''),
+    const c = el('circle', { cx: x, cy: y, r: compact() ? 4 : 4.6, class: 'port-dot' + (pend ? ' pending' : '') + (cab ? ' used' : ''),
       style: `fill:${inner};stroke:${ring}`, 'data-port': port.id, 'data-pdev': dev.id, 'data-side': side }, g);
     const sub = cab && subnetOf(cab);
     const t = el('title', {}, c); t.textContent = `${port.name} — ${port.conn} — ${sigById(port.sig).name} (${port.dir})` + (cab ? ' · câblé' + (sub ? ' : ' + sub.name : '') : '');
@@ -2463,6 +2469,15 @@
   function normalize(p) {
     const base = emptyProject();
     p = Object.assign(base, p);
+    // ancien nom du modèle « Boîtier mural (vide) » : on renomme aussi les appareils déjà posés, leurs ports et les libellés
+    const OLD_WALL = /Boîtier mural \(vide\)/g;
+    p.devices.forEach((d) => {
+      if (d.model) d.model = d.model.replace(OLD_WALL, 'Boîtier mural');
+      if (d.name) d.name = d.name.replace(OLD_WALL, 'Boîtier mural');
+      (d.ports || []).forEach((q) => { if (q.name) q.name = q.name.replace(OLD_WALL, 'Boîtier mural'); });
+    });
+    p.cables.forEach((c) => { if (c.label) c.label = c.label.replace(OLD_WALL, 'Boîtier mural'); });
+    (p.customTemplates || []).forEach((t) => { if (t.model) t.model = t.model.replace(OLD_WALL, 'Boîtier mural'); });
     // compléter les types de réseaux par défaut absents
     L.SIGNALS.forEach((s) => { if (!p.signals.find((x) => x.id === s.id)) p.signals.push(clone(s)); });
     p.cables.forEach((c) => { const d = c.infra && p.devices.find((x) => x.id === c.a.d); if (d && c.label === d.name) c.label = ''; });
